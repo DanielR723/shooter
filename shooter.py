@@ -47,7 +47,7 @@ angle = np.tile(angle, sim_density)
 
 # PLACEHOLDER RPM FUNCTIONS
 speed = rpm / 10
-spin = 2 * np.pi / 60 * rpm
+spin = 2 * np.pi / 60 * rpm 
 
 # Helper value
 N = sim_density**2
@@ -116,11 +116,15 @@ if plot_paths:
 
 print(f'Forming lookup table with {np.sum(hit)} datapoints')
 
+datatable = np.column_stack((pos[:, 0][hit], rpm[hit], angle[hit]))
+sorted = datatable[:, 0].argsort()
+
 with open('shooter-lookup.csv', 'w', newline='') as f:
     writer = csv.writer(f)
-    writer.writerow(['distance', 'rpm', 'angle_rad'])
-    for d, r, a in zip(pos[:, 0][hit], rpm[hit], angle[hit]):
-        writer.writerow([d, r, a])
+    writer.writerow(['distance', 'rpm', 'angle'])
+    for i in sorted:
+        row = datatable[i, :]
+        writer.writerow(row)
 
 if plot_density:
     plt.cla()
