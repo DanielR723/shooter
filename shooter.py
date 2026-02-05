@@ -1,18 +1,16 @@
 import csv
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.integrate import solve_ivp
 
 # ---------- Variables ----------
 
 # Simulation Variables
 target_height = 2 # Height of the target (m)
-max_height = 100 # Max height of the ball (m)
 angle_range = np.pi / 4 # Tolerance for vertical angle when hitting the target (rad)
-dt = 0.01 # Timestep used when integrating (s)
-sim_density = 100 # Number of values used when simulating rpms or shooter angles, Note: Runs sim_density^2 simulations
-plot_paths = False # DEBUG, plot paths of simulated trajectories
-plot_density = False # DEBUG, plot the x coordinates of successfull simulations
-plot_prediction = True # DEBUG, simulate and plot a predicted shot versus a naive prediction
+t_max = 10 # Max time to integrate to (s)
+rpm_density = 100 # Number of values used when simulating rpms
+angle_density = 100 # Number ov values used when simulating angles
 
 # Shooter Constraints
 rpm_min = 100 # Minimum rpm (2pi*rad/min)
@@ -29,94 +27,74 @@ k = 1 # S -> C_l approximate ratio (constant)
 
 # Global Constants
 g = 9.81 # Gravitational acceleration (m/s^2)
-p = 1.26 # Air density (kg/m^3)
+p = 1.21 # Air density (kg/m^3)
+
+# Generate set of values to simulate
+rpm = np.linspace(rpm_min, rpm_max, num=rpm_density) # RPM's (2pi*rad/min)
+angle = np.linspace(angle_min, angle_max, num=angle_density) # Angle's (rad)
 
 # ---------- Variables ----------
 
-# ---------- Setup ----------
-
-print('\nSetup')
-
-# Generate set of values to simulate
-rpm = np.linspace(rpm_min, rpm_max, num=sim_density)
-angle = np.linspace(angle_min, angle_max, num=sim_density)
-
-# Flattened cartesian product
-rpm = np.repeat(rpm, sim_density)
-angle = np.tile(angle, sim_density)
-
-# PLACEHOLDER RPM FUNCTIONS
-speed = rpm / 10
-spin = 2 * np.pi / 60 * rpm 
-
-# Helper value
-N = sim_density**2
-
-# Projectile setup
-pos = np.zeros((N, 3)) # Posision (m)
-v = np.column_stack((speed * np.cos(angle), np.zeros(N), speed * np.sin(angle))) # Velocity (m/s)
-omega = np.column_stack((np.zeros(N), spin, np.zeros(N))) # Spin speed (rad/s)
-
-# ---------- Setup ----------
-
 # ---------- Integrator ----------
 
-print('Integrating')
+print('\nIntegrating')
 
-# Simulation information
-running = np.full(N, True)
-hit = np.full(N, False)
+def ode(t, y):
+    v = y[3:6]
 
-x = np.empty((0, N))
-y = np.empty((0, N))
-
-gravity = np.array([0, 0, -m * g]) # Gravitational force
-while np.any(running):
     # Helper values
-    current_speed = np.linalg.norm(v, axis=1)
-    current_spin = np.linalg.norm(omega, axis=1)
+    speed = np.linalg.norm(v)
 
-    S = current_spin * R / current_speed
+    S = y[6] * R / speed
     C_l = k * S
 
-    # Calculate forces
-    drag = -1 / 2 * p * C_d * A * current_speed[running][:, None] * v[running]
-    magnus = 1 / 2 * p * C_l[running][:, None] * A * current_speed[running][:, None]**2 * np.cross(omega[running] / current_spin[running][:, None], v[running] / current_speed[running][:, None])
-    force = drag + magnus + gravity
+    # Forces
+    drag = -1 / 2 * p * C_d * A * speed * v
+    magnus = 1 / 2 * p * C_l * A * speed**2 * np.cross(np.array([0, 1, 0]), v / speed)
+    gravity = np.array([0, 0, -m * g])
 
-    v[running] += force / m * dt
-    last_pos = pos.copy()
-    pos[running] += v[running] * dt
+    # Differentials
+    dydt = np.zeros(7)
+    dydt[0:3] = v
+    dydt[3:6] = (drag + magnus + gravity) / m
+    dydt[6] = 0
 
-    # Collision logic
-    below = pos[:, 2] < target_height
-    above = pos[:, 2] > max_height
-    downward = v[:, 2] < 0
-    crossing = np.sign(last_pos[:, 2] - target_height) != np.sign(pos[:, 2] - target_height)
-    in_range = np.abs(np.atan2(v[:, 0], -v[:, 2])) < angle_range
+    return dydt
 
-    running[(below & downward) | above] = False
-    hit[downward & crossing & in_range] = True
+def hit_event(t, y):
+    return y[2] - target_height
 
-    # Plotting
-    if plot_paths:
-        x = np.vstack((x, pos[:, 0]))
-        y = np.vstack((y, pos[:, 2]))
+hit_event.direction = -1
+hit_event.terminal = True
 
-if plot_paths:
-    for i in range(x.shape[1]):
-        plt.plot(x[:, i], y[:, i])
+def simulate(rpm, angle):
+    # PLACEHOLDER RPM FUNCTIONS
+    speed = rpm / 10
+    spin = 2 * np.pi / 60 * rpm
 
-    plt.axis('equal')
-    plt.show()
+    y0 = np.array([0.0, 0.0, 0.0, speed * np.cos(angle), 0.0, speed * np.sin(angle), spin])
+    sol = solve_ivp(ode, t_span=(0, t_max), y0=y0, events=hit_event, rtol=1e-8, atol=1e-10)
+
+    vertical = abs(np.arctan2(sol.y[3, -1], -sol.y[5, -1])) < angle_range
+    if sol.t_events[0].size == 1 and vertical:
+        return sol.y[0, -1]
+    else:
+        return None
+
+datatable = []
+for r in rpm:
+    for a in angle:
+        x = simulate(r, a)
+        if x:
+            datatable.append([x, r, a])
 
 # ---------- Integrator ----------
 
 # ---------- Lookup Table ----------
 
-print(f'Forming lookup table with {np.sum(hit)} datapoints')
+print(f'Forming lookup table with {len(datatable)} datapoints\n')
 
-datatable = np.column_stack((pos[:, 0][hit], rpm[hit], angle[hit]))
+datatable = np.array(datatable)
 sorted = datatable[:, 0].argsort()
 
 with open('shooter-lookup.csv', 'w', newline='') as f:
@@ -126,96 +104,21 @@ with open('shooter-lookup.csv', 'w', newline='') as f:
         row = datatable[i, :]
         writer.writerow(row)
 
-if plot_density:
-    plt.cla()
-    plt.scatter(pos[:, 0][hit], rpm[hit])
-    plt.show()
-
 # ---------- Lookup Table ----------
 
-# ---------- Test ----------
+# ---------- Graph ----------
 
-if plot_prediction:
-    print('Interpolating')
+rpm = 150.50505050505052
+angle = 1.3803967720318788
 
-    from scipy.interpolate import RBFInterpolator
+speed = rpm / 10
+spin = 2 * np.pi / 60 * rpm
 
-    X = np.column_stack((rpm[hit], angle[hit]))
-    y = pos[:, 0][hit]
-    f = RBFInterpolator(X, y)
+y0 = np.array([0.0, 0.0, 0.0, speed * np.cos(angle), 0.0, speed * np.sin(angle), spin])
+sol = solve_ivp(ode, t_span=(0, t_max), y0=y0, events=hit_event, rtol=1e-8, atol=1e-10)
 
-    print('Running Test')
+plt.plot(sol.y[0, :], sol.y[2, :])
+plt.axis('equal')
+plt.show()
 
-    target_x = 5.0
-
-    from scipy.optimize import minimize
-
-    def loss(u):
-        return (f([u])[0] - target_x)**2
-
-    res = minimize(
-        loss,
-        x0=[(rpm_min + rpm_max) / 2, (angle_min + angle_max) / 2],
-        bounds=[(rpm_min, rpm_max), (angle_min, angle_max)]
-    )
-
-    pred_rpm, pred_angle = res.x
-
-    # Naive approximation
-    desired_angle = np.pi * 3 / 8
-    naive_speed = np.sqrt(g * target_x**2 / (2 * np.cos(desired_angle)**2 * (target_x * np.tan(desired_angle) - target_height)))
-
-    speed = np.array([pred_rpm / 10, naive_speed])
-    spin = np.array([2 * np.pi / 60 * pred_rpm, 100])
-    angle = np.array([pred_angle, desired_angle])
-
-    # Helper value
-    N = 2
-
-    # Projectile setup
-    pos = np.zeros((N, 3)) # Posision (m)
-    v = np.column_stack((speed * np.cos(angle), np.zeros(N), speed * np.sin(angle))) # Velocity (m/s)
-    omega = np.column_stack((np.zeros(N), spin, np.zeros(N))) # Spin speed (rad/s)
-
-    # Simulation information
-    running = np.full(N, True)
-
-    x = np.empty((0, N))
-    y = np.empty((0, N))
-
-    gravity = np.array([0, 0, -m * g]) # Gravitational force
-    while np.any(running):
-        # Helper values
-        current_speed = np.linalg.norm(v, axis=1)
-        current_spin = np.linalg.norm(omega, axis=1)
-
-        S = current_spin * R / current_speed
-        C_l = k * S
-
-        # Calculate forces
-        drag = -1 / 2 * p * C_d * A * current_speed[running][:, None] * v[running]
-        magnus = 1 / 2 * p * C_l[running][:, None] * A * current_speed[running][:, None]**2 * np.cross(omega[running] / current_spin[running][:, None], v[running] / current_speed[running][:, None])
-        force = drag + magnus + gravity
-
-        v[running] += force / m * dt
-        last_pos = pos.copy()
-        pos[running] += v[running] * dt
-
-        # Collision logic
-        below = pos[:, 2] < target_height
-        downward = v[:, 2] < 0
-
-        running[below & downward] = False
-
-        # Plotting
-        x = np.vstack((x, pos[:, 0]))
-        y = np.vstack((y, pos[:, 2]))
-
-    for i in range(x.shape[1]):
-        plt.plot(x[:, i], y[:, i])
-
-    plt.scatter(target_x, target_height)
-    plt.axis('equal')
-    plt.show()
-
-# ---------- Test ----------
+# ---------- Graph ----------
