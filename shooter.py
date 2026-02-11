@@ -43,17 +43,15 @@ angle = np.linspace(angle_min, angle_max, num=angle_density) # Angle's (rad)
 
 # -------------------- Data --------------------
 
-num_datapoints = 3 # Number of datapoints
-fps = 4 # FPS of the camera (frames/s)
-test_rpm = np.array([100, 140, 180]) # RPM's (2pi*rad/min)
-test_angle = np.array([1.0, 1.5, 2.0]) # Angle's (rad)
-test_x = np.array([[0.5, 1.0, 1.5, 2.0],
-                   [1.2, 2.4, 3.0, 4.0],
-                   [0.2, 0.5, 0.9, 1.5]]) # X Positions (m)
-test_y = np.array([[0.2, 0.4, 0.6, 0.8],
-                   [0.4, 0.8, 1.2, 1.6],
-                   [0.6, 1.2, 2.0, 3.0]]) # Y Positions (m)
-t = np.arange(0, test_x.shape[1]) / fps
+speed_deg = 3 # Degree of speed polynomial
+spin_deg = 3 # Degree of spin polynomial
+
+speed_c = [] # Coefficients for speed polynomial (NEEDS TO BE INITIALIZED BEFORE DATATABLE)
+spin_c = [] # Coefficients for spin polynomial (NEEDS TO BE INITIALIZED BEFORE DATATABLE)
+
+test_rpm = np.array([100, 120, 140, 160, 180, 200]) # RPM's (2pi*rad/min)
+test_speed = np.array([10, 20, 40, 65, 70, 100]) # Speed exiting shooter (m/s)
+test_spin = np.array([100, 140, 145, 300, 325, 350]) # Spin exiting shooter (2pi*rad/s)
 
 # -------------------- Data --------------------
 
@@ -61,10 +59,13 @@ t = np.arange(0, test_x.shape[1]) / fps
 
 # -------------------- Setup --------------------
 
-def rpm_to_data(rpm): # Convert RPM to speed and spin
-    # PLACEHOLDER RPM FUNCTIONS
-    speed = rpm / 10
-    spin = 2 * np.pi / 60 * rpm
+def rpm_to_params(rpm): # Convert RPM to speed and spin
+    speed = np.zeros(rpm.shape)
+    spin = np.zeros(rpm.shape)
+    for i in range(speed_deg + 1):
+        speed += speed_c[i] * rpm**(speed_deg - i)
+    for i in range(spin_deg + 1):
+        spin += spin_c[i] * rpm**(speed_deg - i)
 
     return speed, spin
 
@@ -73,9 +74,8 @@ def ode(t, y): # ODE's for integrator
 
     # Helper values
     speed = np.linalg.norm(v)
-
     S = y[6] * R / speed
-    C_l = k * S
+    C_l = k * S # APPROXIMATION
 
     # Forces
     drag = -1 / 2 * p * C_d * A * speed * v
@@ -97,7 +97,7 @@ hit_event.direction = -1
 hit_event.terminal = True
 
 def simulate(rpm, angle): # Get the landing x of a certain rpm and angle
-    speed, spin = rpm_to_data(rpm)
+    speed, spin = rpm_to_params(rpm)
 
     # Set up integrator
     y0 = np.array([0.0, 0.0, shooter_height, speed * np.cos(angle), 0.0, speed * np.sin(angle), spin])
@@ -109,6 +109,23 @@ def simulate(rpm, angle): # Get the landing x of a certain rpm and angle
         return sol.y[0, -1]
     else:
         return None
+
+def fit_data(): # Fit a polynomial to data collected for speed and spin
+    global speed_c, spin_c
+
+    speed_c = np.polyfit(test_rpm, test_speed, speed_deg)
+    spin_c = np.polyfit(test_rpm, test_spin, spin_deg)
+
+def plot_data(): # Plot the collected speed and spin datapoints against the polynomial curves
+    x = np.linspace(rpm_min, rpm_max, rpm_density)
+    y1, y2 = rpm_to_params(x)
+
+    plt.plot(x, y1)
+    plt.plot(x, y2)
+    plt.scatter(test_rpm, test_speed)
+    plt.scatter(test_rpm, test_spin)
+
+    plt.show()
 
 # -------------------- Setup --------------------
 
@@ -159,63 +176,10 @@ def gen_lookup(): # Create the lookup table
 
 
 
-# -------------------- Calculator --------------------
-
-def ode_c(t, y, C_d, k): # ODE's for integrator with constants input
-    v = y[3:6]
-
-    # Helper values
-    speed = np.linalg.norm(v)
-
-    S = y[6] * R / speed
-    C_l = k * S
-
-    # Forces
-    drag = -1 / 2 * p * C_d * A * speed * v
-    magnus = 1 / 2 * p * C_l * A * speed**2 * np.cross(np.array([0, 1, 0]), v / speed)
-    gravity = np.array([0, 0, -m * g])
-
-    # Differentials
-    dydt = np.zeros(7)
-    dydt[0:3] = v
-    dydt[3:6] = (drag + magnus + gravity) / m
-    dydt[6] = 0
-
-    return dydt
-
-def error(x0): # Get the error between simulation and test data
-    C_d, k = x0
-
-    e = 0
-    for i in range(num_datapoints):
-        speed, spin = rpm_to_data(test_rpm[i])
-        angle = test_angle[i]
-        x = test_x[i]
-        y = test_y[i]
-
-        y0 = np.array([x[0], 0.0, y[0], speed * np.cos(angle), 0.0, speed * np.sin(angle), spin])
-        sol = solve_ivp(ode_c, t_span=(0, t[-1]), y0=y0, args=(C_d, k), t_eval=t, rtol=1e-8, atol=1e-10)
-
-        pred_x = sol.y[0]
-        pred_y = sol.y[2]
-
-        e += np.sum((pred_x - x)**2 + (pred_y - y)**2)
-
-    return e
-
-def calc_constants(C_d_guess, k_guess): # Calculate the optimal C_d and k
-    x0 = [C_d_guess, k_guess]
-    result = minimize(error, x0=x0)
-    return result.x
-
-# -------------------- Calculator --------------------
-
-
-
 # -------------------- Graph --------------------
 
-def graph(rpm, angle):
-    speed, spin = rpm_to_data(rpm)
+def graph(rpm, angle): # Graph a shot with set rpm and angle
+    speed, spin = rpm_to_params(rpm)
 
     y0 = np.array([0.0, 0.0, shooter_height, speed * np.cos(angle), 0.0, speed * np.sin(angle), spin])
     sol = solve_ivp(ode, t_span=(0, t_max), y0=y0, events=hit_event, rtol=1e-8, atol=1e-10)
@@ -228,6 +192,5 @@ def graph(rpm, angle):
 
 
 
-print()
-# gen_lookup()
-graph(145.83333333333334, 1.3744467859455345)
+fit_data()
+plot_data()
