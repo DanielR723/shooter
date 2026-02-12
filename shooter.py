@@ -22,11 +22,11 @@ dir_density = 10 # Number of values used when simulating directions
 rpm_min = 100 # Minimum rpm (2pi*rad/min)
 rpm_max = 200 # Maximum rpm (2pi*rad/min)
 angle_min = 0 # Minimum shooter angle (rad)
-angle_max = np.pi / 2 # Maximum shooter angle (rad)
+angle_max = np.pi / 2.0 # Maximum shooter angle (rad)
 speed_min = 0.0 # Minimum bot speed (m/s)
-speed_max = 1.0 # Maximum bot speed (m/s)
+speed_max = 100.0 # Maximum bot speed (m/s)
 dir_min = 0.0 # Minimum bot angle (rad)
-dir_max = 0.0 # Maximum bot angle (rad)
+dir_max = 2.0 * np.pi # Maximum bot angle (rad)
 
 # Ball Constants
 m = 0.215 # Mass of the ball (kg)
@@ -146,9 +146,7 @@ def simulate(s, d, r, a): # Get the landing x of a certain rpm and angle
     if sol.t_events[0].size > 0:
         y_hit = sol.y_events[0][0]
 
-        v = y_hit[3:6]
-        vertical = np.dot(v, np.array([0.0, 0.0, -1.0])) / np.linalg.norm(v) > np.cos(angle_range)
-
+        vertical = -y_hit[5] / np.linalg.norm(y_hit[3:6]) > np.cos(angle_range)
         if vertical:
             shot_dist = np.sqrt(y_hit[0]**2 + y_hit[1]**2)
             shot_dir = np.arctan2(y_hit[1], y_hit[0])
@@ -249,14 +247,23 @@ def gen_lookup(): # Create the lookup table
 
 # -------------------- Graph --------------------
 
-def graph(rpm, angle): # Graph a shot with set rpm and angle
-    speed, spin = rpm_to_params(rpm)
+def sim_path(s, d, r, a):
+    speed, spin = rpm_to_params(np.array([r]))
+    speed = speed[0]
+    spin = spin[0]
 
-    y0 = np.array([0.0, 0.0, shooter_height, speed * np.cos(angle), 0.0, speed * np.sin(angle), spin])
+    y0 = np.array([0.0, 0.0, shooter_height, s * np.cos(d) + speed * np.cos(a), s * np.sin(d), speed * np.sin(a), spin])
     sol = solve_ivp(ode, t_span=(0, t_max), y0=y0, events=hit_event, rtol=1e-8, atol=1e-10)
 
-    plt.plot(sol.y[0, :], sol.y[2, :])
-    plt.axis('equal')
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    ax.plot(sol.y[0, :], sol.y[1, :], sol.y[2, :])
+    ax.set_box_aspect([1, 1, 1])
+
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    ax.set_zlabel('z')
+
     plt.show()
 
 def plot_shot_data(): # Plot the collected speed and spin datapoints against the polynomial curves
@@ -290,4 +297,5 @@ def plot_path_data(): # Plot predicted path compared to datapoints
 
 fit_shot_data()
 # optomize_C_d()
-gen_lookup()
+s, d, r, a = 33.33333333333333,4.886921905584122,188.88888888888889,50.0
+sim_path(s, d, r, a * np.pi / 180)
