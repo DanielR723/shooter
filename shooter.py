@@ -3,6 +3,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.integrate import solve_ivp
 from scipy.optimize import minimize
+# 44 -> 46 from horizontal - 2000/3000/4000/5000/6000 RPM
+# 34 -> 56 from horizontal - 2000/3000/4000/5000/6000 RPM
+# Sanity check: 39 -> 51 from horizontal - 3000 RPM
 
 
 
@@ -13,20 +16,20 @@ shooter_height = 0.390 # Height of the shooter (m)
 target_height = 1.83 # Height of the target (m)
 angle_range = np.pi / 4 # Tolerance for vertical angle when hitting the target (rad)
 t_max = 10.0 # Max time to integrate to (s)
+speed_density = 1 # Number of values used when simulating speeds
+dir_density = 1 # Number of values used when simulating directions
 rpm_density = 10 # Number of values used when simulating rpms
 angle_density = 10 # Number of values used when simulating angles
-speed_density = 10 # Number of values used when simulating speeds
-dir_density = 10 # Number of values used when simulating directions
 
 # Shooter Constraints
-rpm_min = 100 # Minimum rpm (2pi*rad/min)
-rpm_max = 200 # Maximum rpm (2pi*rad/min)
-angle_min = 0 # Minimum shooter angle (rad)
-angle_max = np.pi / 2.0 # Maximum shooter angle (rad)
 speed_min = 0.0 # Minimum bot speed (m/s)
-speed_max = 100.0 # Maximum bot speed (m/s)
+speed_max = 5.1 # Maximum bot speed (m/s)
 dir_min = 0.0 # Minimum bot angle (rad)
 dir_max = 2.0 * np.pi # Maximum bot angle (rad)
+rpm_min = 2000.0 # Minimum rpm (2pi*rad/min)
+rpm_max = 6000.0 # Maximum rpm (2pi*rad/min)
+angle_min = 46.0 * np.pi / 180.0 # Minimum shooter angle (rad)
+angle_max = 56.0 * np.pi / 180.0 # Maximum shooter angle (rad)
 
 # Ball Constants
 m = 0.215 # Mass of the ball (kg)
@@ -39,11 +42,11 @@ k = 1 # S -> C_l approximate ratio (constant)
 g = 9.81 # Gravitational acceleration (m/s^2)
 p = 1.14 # Air density (kg/m^3)
 
-# Generate set of values to simulate
-rpm = np.linspace(rpm_min, rpm_max, rpm_density) # RPM's (2pi*rad/min)
-angle = np.linspace(angle_min, angle_max, angle_density) # Angle's (rad)
+# Generate set of values to 
 speed = np.linspace(speed_min, speed_max, speed_density) # Speeds the bot is traveling (m/s)
 dir = np.linspace(dir_min, dir_max, dir_density) # Directions the bot is traveling (rad)
+rpm = np.linspace(rpm_min, rpm_max, rpm_density) # RPM's (2pi*rad/min)
+angle = np.linspace(angle_min, angle_max, angle_density) # Angle's (rad)
 
 # -------------------- Variables --------------------
 
@@ -57,13 +60,16 @@ spin_deg = 3 # Degree of spin polynomial
 speed_c = [] # Coefficients for speed polynomial (NEEDS TO BE INITIALIZED BEFORE DATATABLE)
 spin_c = [] # Coefficients for spin polynomial (NEEDS TO BE INITIALIZED BEFORE DATATABLE)
 
-test_rpm = np.array([100, 120, 140, 160, 180, 200]) # RPM's (2pi*rad/min)
-test_speed = np.array([10, 20, 40, 65, 70, 100]) # Speed exiting shooter (m/s)
-test_spin = np.array([100, 140, 145, 300, 325, 350]) # Spin exiting shooter (2pi*rad/s)
+test_rpm = np.array([2000, 3000, 4000, 5000, 6000]) # RPM's (2pi*rad/min)
+test_speed = np.array([10, 20, 25, 30, 40]) # Speed exiting shooter (m/s)
+test_spin = np.array([100, 140, 145, 300, 325]) # Spin exiting shooter (2pi*rad/s)
 
-timestep = 0.09 # Timestep between snapshots (s)
+num_tests = 1 # Number of tests
+timestep = 0.2 # Timestep between snapshots (s)
+tests = np.array([[2000, 32 * np.pi / 180]]) # [Motor RPM (2pi*rad/s), Hood Angle (rad)]
+test_x = np.array([[0.0, 0.2, 0.3, 0.35, 0.375]]) # X positions each frame (m)
 test_y = -np.array([[0.0, 0.08, 0.18, 0.42, 0.78]]) # Y positions each frame (m)
-t = np.arange(0, test_y.shape[1]) * timestep # Time for each snapshot (s)
+t = np.arange(0, test_y.shape[1]) * timestep
 
 # -------------------- Data --------------------
 
@@ -72,8 +78,8 @@ t = np.arange(0, test_y.shape[1]) * timestep # Time for each snapshot (s)
 # -------------------- Setup --------------------
 
 def rpm_to_params(rpm): # Convert RPM to speed and spin
-    speed = np.zeros(rpm.shape)
-    spin = np.zeros(rpm.shape)
+    speed = 0
+    spin = 0
     for i in range(speed_deg + 1):
         speed += speed_c[i] * rpm**(speed_deg - i)
     for i in range(spin_deg + 1):
@@ -86,9 +92,6 @@ def ode(t, y): # ODE's for integrator
 
     # Helper values
     speed = np.linalg.norm(v)
-    if speed == 0:
-        speed = 1e-8
-
     S = y[6] * R / speed
     C_l = k * S # APPROXIMATION
 
@@ -105,7 +108,7 @@ def ode(t, y): # ODE's for integrator
 
     return dydt
 
-def ode_c(t, y, C_d): # ODE's for integrator
+def ode_c(t, y, C_d, k): # ODE's for integrator
     v = y[3:6]
 
     # Helper values
@@ -135,12 +138,12 @@ def hit_event(t, y): # Detect hits
 hit_event.direction = -1
 hit_event.terminal = True
 
-def simulate(s, d, r, a): # Get the landing x of a certain rpm and angle
+def simulate(s, d, r, a): # Get the landing x for certain initial conditions
     speed, spin = rpm_to_params(r)
 
     # Set up integrator
     y0 = np.array([0.0, 0.0, shooter_height, s * np.cos(d) + speed * np.cos(a), s * np.sin(d), speed * np.sin(a), spin])
-    sol = solve_ivp(ode, t_span=(0.0, t_max), y0=y0, events=hit_event, rtol=1e-8, atol=1e-10)
+    sol = solve_ivp(ode, t_span=(0.0, t_max), y0=y0, events=hit_event)
 
     # Get return value
     if sol.t_events[0].size > 0:
@@ -170,26 +173,36 @@ def fit_shot_data(): # Fit a polynomial to data collected for speed and spin
     spin_c = np.polyfit(test_rpm, test_spin, spin_deg)
 
 def error(x):
-    C_d = x[0]
-
-    # Set up integrator
-    y0 = np.zeros(7)
-    sol = solve_ivp(ode_c, args=(C_d,), t_span=(0.0, t[-1]), y0=y0, t_eval=t, rtol=1e-8, atol=1e-10)
-    est_y = sol.y[2]
-
-    # Calculate error between estimation and data
+    C_d, k = x
     e = 0
-    for row in test_y:
-        e += np.sum((row - est_y)**2)
+
+    for test in tests:
+        r, a = test
+        speed, spin = rpm_to_params(r)
+
+        # Set up integrator
+        y0 = np.array([0.0, 0.0, shooter_height, speed * np.cos(a), 0.0, speed * np.sin(a), spin])
+        sol = solve_ivp(ode_c, args=(C_d, k), t_span=(0.0, t[-1]), y0=y0, t_eval=t)
+
+        est_x = sol.y[0]
+        est_y = sol.y[2]
+
+        # Calculate error between estimation and data
+        for i in range(num_tests):
+            row_x = test_x[i]
+            row_y = test_y[i]
+
+            e += np.sum((row_x - est_x)**2)
+            e += np.sum((row_y - est_y)**2)
     
     return e
 
-def optomize_C_d(): # Optomize C_d using test data
-    global C_d
+def optimize_consts(): # Optimize constants using test data
+    global C_d, k
 
-    x0 = [C_d]
-    result = minimize(error, x0=x0, bounds=[(0.0, np.inf)])
-    C_d = result.x[0]
+    x0 = [C_d, k]
+    result = minimize(error, x0=x0)
+    C_d, k = result.x
 
 # -------------------- Calculation --------------------
 
@@ -225,7 +238,9 @@ def gen_lookup(): # Create the lookup table
 
                     shot_dist, shot_dir = simulate(s, d, r, a)
                     if shot_dist:
-                        datatable.append([shot_dist, shot_dir * 180 / np.pi, s, d, r, a * 180 / np.pi])
+                        x_vel = s * np.cos(d)
+                        y_vel = s * np.sin(d)
+                        datatable.append([shot_dist, shot_dir * 180 / np.pi, x_vel, y_vel, r, a * 180 / np.pi])
 
     print(f'\nForming lookup table with {len(datatable)} datapoints')
 
@@ -236,7 +251,7 @@ def gen_lookup(): # Create the lookup table
     # Write to CSV
     with open('shooter-lookup.csv', 'w', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow(['landing distance', 'landing direction', 'bot speed', 'bot direction', 'rpm', 'angle'])
+        writer.writerow(['landing distance', 'landing direction', 'bot x velocity', 'bot y velocity', 'rpm', 'angle'])
         for i in sorted:
             row = datatable[i, :]
             writer.writerow(row)
@@ -247,14 +262,14 @@ def gen_lookup(): # Create the lookup table
 
 # -------------------- Graph --------------------
 
-def sim_path(s, d, r, a):
-    speed, spin = rpm_to_params(np.array([r]))
-    speed = speed[0]
-    spin = spin[0]
+def sim_path(s, d, r, a): # Plot the path of a projectile with certain starting conditions
+    speed, spin = rpm_to_params(r)
 
+    # Setup integrator
     y0 = np.array([0.0, 0.0, shooter_height, s * np.cos(d) + speed * np.cos(a), s * np.sin(d), speed * np.sin(a), spin])
-    sol = solve_ivp(ode, t_span=(0, t_max), y0=y0, events=hit_event, rtol=1e-8, atol=1e-10)
+    sol = solve_ivp(ode, t_span=(0, t_max), y0=y0, events=hit_event)
 
+    # Plot data
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
     ax.plot(sol.y[0, :], sol.y[1, :], sol.y[2, :])
@@ -267,9 +282,11 @@ def sim_path(s, d, r, a):
     plt.show()
 
 def plot_shot_data(): # Plot the collected speed and spin datapoints against the polynomial curves
+    # Get data
     x = np.linspace(rpm_min, rpm_max, rpm_density)
     y1, y2 = rpm_to_params(x)
 
+    # Plot data
     plt.plot(x, y1)
     plt.plot(x, y2)
     plt.scatter(test_rpm, test_speed)
@@ -277,18 +294,21 @@ def plot_shot_data(): # Plot the collected speed and spin datapoints against the
 
     plt.show()
 
-def plot_path_data(): # Plot predicted path compared to datapoints
-    x = np.linspace(0.0, t[-1], 100)
+def plot_test_shots():
+    for i in range(num_tests):
+        r, a = tests[i]
+        speed, spin = rpm_to_params(r)
 
-    y0 = np.zeros(7)
-    sol = solve_ivp(ode_c, args=(C_d,), t_span=(0.0, t[-1]), y0=y0, t_eval=x, rtol=1e-8, atol=1e-10)
+        # Setup integrator
+        y0 = np.array([0.0, 0.0, shooter_height, speed * np.cos(a), 0.0, speed * np.sin(a), spin])
+        sol = solve_ivp(ode, t_span=(0, t_max), y0=y0, events=hit_event)
 
-    y = sol.y[2]
-
-    plt.plot(x, y)
-    for row in test_y:
-        plt.scatter(t, row)
-
+        # Plot data
+        plt.plot(sol.y[0, :], sol.y[2, :])
+    
+    for i in range(num_tests):
+        plt.scatter(test_x[i], test_y[i])
+    
     plt.show()
 
 # -------------------- Graph --------------------
@@ -296,6 +316,5 @@ def plot_path_data(): # Plot predicted path compared to datapoints
 
 
 fit_shot_data()
-# optomize_C_d()
-s, d, r, a = 33.33333333333333,4.886921905584122,188.88888888888889,50.0
-sim_path(s, d, r, a * np.pi / 180)
+optimize_consts()
+gen_lookup()
