@@ -12,9 +12,9 @@ from scipy.optimize import minimize
 # -------------------- Variables --------------------
 
 # Simulation Variables
-shooter_height = 0.390 # Height of the shooter (m)
+shooter_height = 0.39 # Height of the shooter (m)
 target_height = 1.83 # Height of the target (m)
-angle_range = np.pi / 4 # Tolerance for vertical angle when hitting the target (rad)
+angle_range = np.pi # Tolerance for vertical angle when hitting the target (rad)
 t_max = 10.0 # Max time to integrate to (s)
 speed_density = 1 # Number of values used when simulating speeds
 dir_density = 1 # Number of values used when simulating directions
@@ -33,7 +33,7 @@ angle_max = 56.0 * np.pi / 180.0 # Maximum shooter angle (rad)
 
 # Ball Constants
 m = 0.215 # Mass of the ball (kg)
-R = 0.0750 # Radius of the ball (m)
+R = 0.075 # Radius of the ball (m)
 A = np.pi * R**2 # Cross-sectional area of the ball (m^2)
 C_d = 0.5 # Drag coefficient (constant)
 k = 0.3 # S -> C_l approximate ratio (constant)
@@ -68,7 +68,7 @@ num_tests = 1 # Number of tests
 timestep = 0.033333 # Timestep between snapshots (s)
 tests = np.array([[3000, 51 * np.pi / 180]]) # [Motor RPM (rotations/s), Hood Angle (rad)]
 test_x = np.array([[0.00000, 0.11136, 0.22727, 0.34545, 0.46364, 0.59318, 0.67045, 0.77727, 0.89318, 1.00000, 1.11818, 1.22045, 1.32727, 1.43409]]) # X positions each frame (m)
-test_y = np.array([[0.39000, 0.51727, 0.64455, 0.76273, 0.86500, 0.95818, 1.03318, 1.09227, 1.16500, 1.22409, 1.27182, 1.29682, 1.32182, 1.34455]]) # Y positions each frame (m)
+test_y = np.array([[0.59000, 0.71727, 0.84455, 0.96273, 1.06500, 1.15818, 1.23318, 1.29227, 1.36500, 1.42409, 1.47182, 1.49682, 1.52182, 1.54455]]) # Y positions each frame (m)
 t = np.arange(0, test_x.shape[1]) * timestep
 
 # -------------------- Data --------------------
@@ -242,7 +242,7 @@ def gen_lookup(): # Create the lookup table
                     if shot_dist:
                         x_vel = s * np.cos(d)
                         y_vel = s * np.sin(d)
-                        datatable.append([shot_dist, shot_dir * 180 / np.pi, x_vel, y_vel, r, a * 180 / np.pi])
+                        datatable.append([shot_dist, shot_dir * 180 / np.pi, x_vel, y_vel, r, (a - angle_min) * 180 / np.pi])
 
     print(f'\nForming lookup table with {len(datatable)} datapoints')
 
