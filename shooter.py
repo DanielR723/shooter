@@ -11,26 +11,6 @@ from scipy.optimize import minimize
 
 # -------------------- Variables --------------------
 
-# Simulation Variables
-shooter_height = 0.39 # Height of the shooter (m)
-target_height = 1.83 # Height of the target (m)
-angle_range = np.pi # Tolerance for vertical angle when hitting the target (rad)
-t_max = 10.0 # Max time to integrate to (s)
-speed_density = 1 # Number of values used when simulating speeds
-dir_density = 1 # Number of values used when simulating directions
-rpm_density = 100 # Number of values used when simulating rpms
-angle_density = 100 # Number of values used when simulating angles
-
-# Shooter Constraints
-speed_min = 0.0 # Minimum bot speed (m/s)
-speed_max = 5.1 # Maximum bot speed (m/s)
-dir_min = 0.0 # Minimum bot angle (rad)
-dir_max = 2.0 * np.pi # Maximum bot angle (rad)
-rpm_min = 2000.0 # Minimum rpm (2pi*rad/min)
-rpm_max = 6000.0 # Maximum rpm (2pi*rad/min)
-angle_min = 46.0 * np.pi / 180.0 # Minimum shooter angle (rad)
-angle_max = 56.0 * np.pi / 180.0 # Maximum shooter angle (rad)
-
 # Ball Constants
 m = 0.215 # Mass of the ball (kg)
 R = 0.075 # Radius of the ball (m)
@@ -41,6 +21,26 @@ k = 0.3 # S -> C_l approximate ratio (constant)
 # Global Constants
 g = 9.81 # Gravitational acceleration (m/s^2)
 p = 1.14 # Air density (kg/m^3)
+
+# Simulation Variables
+shooter_height = 0.39 # Height of the shooter (m)
+target_height = 1.83 + R # Height of the target (m)
+angle_range = np.pi # Tolerance for vertical angle when hitting the target (rad)
+t_max = 10.0 # Max time to integrate to (s)
+speed_density = 1 # Number of values used when simulating speeds
+dir_density = 1 # Number of values used when simulating directions
+rpm_density = 100 # Number of values used when simulating rpms
+angle_density = 100 # Number of values used when simulating angles
+
+# Shooter Constraints
+speed_min = 0.0 # Minimum bot speed (m/s)
+speed_max = 4.5 # Maximum bot speed (m/s)
+dir_min = 0.0 # Minimum bot angle (rad)
+dir_max = 2.0 * np.pi # Maximum bot angle (rad)
+rpm_min = 3000.0 # Minimum rpm (2pi*rad/min)
+rpm_max = 6000.0 # Maximum rpm (2pi*rad/min)
+angle_min = 46.0 * np.pi / 180.0 # Minimum shooter angle (rad)
+angle_max = 56.0 * np.pi / 180.0 # Maximum shooter angle (rad)
 
 # Generate set of values to 
 speed = np.linspace(speed_min, speed_max, speed_density) # Speeds the bot is traveling (m/s)
@@ -60,15 +60,17 @@ spin_deg = 2 # Degree of spin polynomial
 speed_c = [] # Coefficients for speed polynomial (NEEDS TO BE INITIALIZED BEFORE DATATABLE)
 spin_c = [] # Coefficients for spin polynomial (NEEDS TO BE INITIALIZED BEFORE DATATABLE)
 
-test_rpm = np.array([2000, 3000, 4000, 5000, 6000]) # RPM's (rotations/min)
-test_speed = np.array([3.0, 4.5, 7.2, 9.0, 9.0]) # Speed exiting shooter (m/s)
-test_spin = np.array([-3.43, -4.29, -4.00, -5.00, -6.32]) # Spin exiting shooter (rotations/s)
+test_rpm = np.array([3000.0, 4000.0, 5000.0, 6000.0, 3000.0, 4000.0, 5000.0, 6000.0]) # RPM's (rotations/min)
+test_speed = np.array([5.561746945475823, 6.9015543559842465, 7.827967590669779, 8.083195075204472, 5.131013479562509, 7.099633453821274, 8.653746379693173, 8.36101844274653]) * 1.05 # Speed exiting shooter (m/s)
+test_spin = np.array([-3.1578947368421053, -4.285714285714286, -5.0, -6.666666666666667, -3.5294117647058822, -4.615384615384615, -5.0, -5.454545454545454]) # Spin exiting shooter (rotations/s)
 
-num_tests = 1 # Number of tests
-timestep = 0.033333 # Timestep between snapshots (s)
-tests = np.array([[3000, 51 * np.pi / 180]]) # [Motor RPM (rotations/s), Hood Angle (rad)]
-test_x = np.array([[0.00000, 0.11136, 0.22727, 0.34545, 0.46364, 0.59318, 0.67045, 0.77727, 0.89318, 1.00000, 1.11818, 1.22045, 1.32727, 1.43409]]) # X positions each frame (m)
-test_y = np.array([[0.59000, 0.71727, 0.84455, 0.96273, 1.06500, 1.15818, 1.23318, 1.29227, 1.36500, 1.42409, 1.47182, 1.49682, 1.52182, 1.54455]]) # Y positions each frame (m)
+num_tests = 2 # Number of tests
+timestep = 0.03333333333333333 # Timestep between snapshots (s)
+tests = np.array([[3000.0, 46.0 * np.pi / 180.0], [3000.0, 56.0 * np.pi / 180.0]]) # [Motor RPM (rotations/s), Hood Angle (rad)]
+test_x = np.array([[0.0, 0.13738317757009344, 0.2719626168224299, 0.40934579439252333, 0.5397196261682242, 0.667289719626168, 0.8018691588785045, 0.916822429906542, 1.0499999999999998, 1.1831775700934577, 1.3079439252336447, 1.4467289719626166, 1.5799065420560745, 1.7074766355140185, 1.8476635514018689, 1.986448598130841, 2.1294392523364483],
+                   [0.0, 0.10654205607476636, 0.2116822429906542, 0.31542056074766356, 0.42757009345794394, 0.46542056074766347, 0.5677570093457943, 0.6728971962616822, 0.7738317757009344, 0.8747663551401869, 0.9742990654205607, 1.0710280373831775, 1.1719626168224297, 1.2855140186915888, 1.3962616822429905, 1.5042056074766355, 1.6191588785046727]]) # X positions each frame (m)
+test_y = np.array([[0.39, 0.5189719626168224, 0.6409345794392522, 0.7488785046728972, 0.8442056074766354, 0.9325233644859813, 1.004018691588785, 1.068504672897196, 1.128785046728972, 1.1806542056074765, 1.2157009345794392, 1.2423364485981307, 1.2647663551401869, 1.2745794392523364, 1.270373831775701, 1.2577570093457942, 1.2339252336448596],
+                   [0.39, 0.5245794392523365, 0.6605607476635514, 0.7867289719626168, 0.8960747663551402, 0.9395327102803738, 1.0320560747663552, 1.1189719626168224, 1.1932710280373833, 1.256355140186916, 1.31803738317757, 1.3600934579439252, 1.403551401869159, 1.4273831775700936, 1.454018691588785, 1.4624299065420558, 1.4610280373831777]]) # Y positions each frame (m)
 t = np.arange(0, test_x.shape[1]) * timestep
 
 # -------------------- Data --------------------
@@ -242,7 +244,7 @@ def gen_lookup(): # Create the lookup table
                     if shot_dist:
                         x_vel = s * np.cos(d)
                         y_vel = s * np.sin(d)
-                        datatable.append([shot_dist, shot_dir * 180 / np.pi, x_vel, y_vel, r, (a - angle_min) * 180 / np.pi])
+                        datatable.append([shot_dist, shot_dir * 180.0 / np.pi, x_vel, y_vel, r, (a - angle_min) * 180.0 / np.pi])
 
     print(f'\nForming lookup table with {len(datatable)} datapoints')
 
@@ -318,5 +320,5 @@ def plot_test_shots():
 
 
 fit_shot_data()
-# optimize_consts()
+# optimize_consts() # Innacurate due to plots not accounting for perspective
 gen_lookup()
