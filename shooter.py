@@ -25,28 +25,25 @@ p = 1.14 # Air density (kg/m^3)
 # Simulation Variables
 shooter_height = 0.39 # Height of the shooter (m)
 target_height = 1.83 + R # Height of the target (m)
-angle_range = np.pi # Tolerance for vertical angle when hitting the target (rad)
-t_max = 10.0 # Max time to integrate to (s)
-speed_density = 1 # Number of values used when simulating speeds
-dir_density = 1 # Number of values used when simulating directions
-rpm_density = 100 # Number of values used when simulating rpms
-angle_density = 100 # Number of values used when simulating angles
+angle_range = np.pi / 4.0 # Range of acceptable angles (rad)
+t_max = 2.0 # Max time to integrate to (s)
+velocity_density = 37 # Number of values used when simulating speeds
+rpm_density = 121 # Number of values used when simulating rpms
+angle_density = 21 # Number of values used when simulating hood angles
 
 # Shooter Constraints
-speed_min = 0.0 # Minimum bot speed (m/s)
 speed_max = 4.5 # Maximum bot speed (m/s)
-dir_min = 0.0 # Minimum bot angle (rad)
-dir_max = 2.0 * np.pi # Maximum bot angle (rad)
 rpm_min = 3000.0 # Minimum rpm (2pi*rad/min)
 rpm_max = 6000.0 # Maximum rpm (2pi*rad/min)
-angle_min = 46.0 * np.pi / 180.0 # Minimum shooter angle (rad)
-angle_max = 56.0 * np.pi / 180.0 # Maximum shooter angle (rad)
+angle_min = 46.0 # Minimum shooter angle (rad)
+angle_max = 56.0 # Maximum shooter angle (rad)
 
-# Generate set of values to 
-speed = np.linspace(speed_min, speed_max, speed_density) # Speeds the bot is traveling (m/s)
-dir = np.linspace(dir_min, dir_max, dir_density) # Directions the bot is traveling (rad)
+# Generate set of values to simulate
+velocity_x = np.linspace(-speed_max, speed_max, velocity_density) # Velocity of the bot to or from the target (m/s)
+velocity_y = np.linspace(-speed_max, speed_max, velocity_density) # Velocity of the bot to the left or right of the target (m/s)
 rpm = np.linspace(rpm_min, rpm_max, rpm_density) # RPM's (rotations/min)
-angle = np.linspace(angle_min, angle_max, angle_density) # Angle's (rad)
+angle_deg = np.linspace(angle_min, angle_max, angle_density) # Angle's (deg)
+angle_rad = angle_deg * 180 / np.pi # Angle's (rad)
 
 # -------------------- Variables --------------------
 
@@ -61,8 +58,8 @@ speed_c = [] # Coefficients for speed polynomial (NEEDS TO BE INITIALIZED BEFORE
 spin_c = [] # Coefficients for spin polynomial (NEEDS TO BE INITIALIZED BEFORE DATATABLE)
 
 test_rpm = np.array([3000.0, 4000.0, 5000.0, 6000.0, 3000.0, 4000.0, 5000.0, 6000.0]) # RPM's (rotations/min)
-test_speed = np.array([5.561746945475823, 6.9015543559842465, 7.827967590669779, 8.083195075204472, 5.131013479562509, 7.099633453821274, 8.653746379693173, 8.36101844274653]) * 1.05 # Speed exiting shooter (m/s)
-test_spin = np.array([-3.1578947368421053, -4.285714285714286, -5.0, -6.666666666666667, -3.5294117647058822, -4.615384615384615, -5.0, -5.454545454545454]) # Spin exiting shooter (rotations/s)
+test_speed = np.array([5.561746945475823, 6.9015543559842465, 7.827967590669779, 8.083195075204472, 5.131013479562509, 7.099633453821274, 7.927967590669779, 8.36101844274653]) # Speed exiting shooter (m/s)
+test_spin = np.array([-19.84163781214606, -26.92793703076965, -31.415926535897928, -41.8879020478639, -22.175948142986773, -28.999316802367318, -31.415926535897928, -34.27191985734319]) # Spin exiting shooter (rotations/s)
 
 num_tests = 2 # Number of tests
 timestep = 0.03333333333333333 # Timestep between snapshots (s)
@@ -142,18 +139,18 @@ def hit_event(t, y): # Detect hits
 hit_event.direction = -1
 hit_event.terminal = True
 
-def simulate(s, d, r, a): # Get the landing x for certain initial conditions
+def simulate(vx, vy, r, a): # Get the landing x for certain initial conditions
     speed, spin = rpm_to_params(r)
 
     # Set up integrator
-    y0 = np.array([0.0, 0.0, shooter_height, s * np.cos(d) + speed * np.cos(a), s * np.sin(d), speed * np.sin(a), spin])
+    y0 = np.array([0.0, 0.0, shooter_height, vx + speed * np.cos(a), vy, speed * np.sin(a), spin])
     sol = solve_ivp(ode, t_span=(0.0, t_max), y0=y0, events=hit_event, rtol=1e-8, atol=1e-10)
 
     # Get return value
     if sol.t_events[0].size > 0:
         y_hit = sol.y_events[0][0]
-
         vertical = -y_hit[5] / np.linalg.norm(y_hit[3:6]) > np.cos(angle_range)
+
         if vertical:
             shot_dist = np.sqrt(y_hit[0]**2 + y_hit[1]**2)
             shot_dir = np.arctan2(y_hit[1], y_hit[0])
@@ -216,16 +213,27 @@ def optimize_consts(): # Optimize constants using test data
 
 def gen_lookup(): # Create the lookup table
     # Percentage visual
-    percent_ratio = rpm_density * angle_density * speed_density * dir_density
+    percent_ratio = velocity_density**2 * rpm_density * angle_density
     current_iter = 0
     percent_done = -1
 
     # Integrate
     datatable = []
-    for i_1 in range(speed_density):
-        for i_2 in range(dir_density):
+    for i_1 in range(velocity_density):
+        vx = velocity_x[i_1]
+        for i_2 in range(velocity_density):
+            vy = velocity_y[i_2]
+
+            if vx**2 + vy**2 > speed_max**2:
+                current_iter += rpm_density * angle_density
+                continue
+
             for i_3 in range(rpm_density):
+                r = rpm[i_3]
                 for i_4 in range(angle_density):
+                    a_rad = angle_rad[i_4]
+                    a_deg = angle_deg[i_4]
+
                     # Show perentage
                     current_iter += 1
                     percent = int(current_iter / percent_ratio * 100)
@@ -234,17 +242,9 @@ def gen_lookup(): # Create the lookup table
                         print(f'\rIntegrating [{'-' * bar}{' ' * (20 - bar)}] %{percent}', end='')
                         percent_done = percent
 
-                    # Populate table
-                    s = speed[i_1]
-                    d = dir[i_2]
-                    r = rpm[i_3]
-                    a = angle[i_4]
-
-                    shot_dist, shot_dir = simulate(s, d, r, a)
+                    shot_dist, shot_dir = simulate(vx, vy, r, a_rad)
                     if shot_dist:
-                        x_vel = s * np.cos(d)
-                        y_vel = s * np.sin(d)
-                        datatable.append([shot_dist, shot_dir * 180.0 / np.pi, x_vel, y_vel, r, (a - angle_min) * 180.0 / np.pi])
+                        datatable.append([shot_dist, shot_dir * 180.0 / np.pi, vx, vy, r, a_deg - angle_min])
 
     print(f'\nForming lookup table with {len(datatable)} datapoints')
 
@@ -266,12 +266,12 @@ def gen_lookup(): # Create the lookup table
 
 # -------------------- Graph --------------------
 
-def sim_path(s, d, r, a): # Plot the path of a projectile with certain starting conditions
+def sim_path(vx, vy, r, a): # Plot the path of a projectile with certain starting conditions
     speed, spin = rpm_to_params(r)
 
     # Setup integrator
-    y0 = np.array([0.0, 0.0, shooter_height, s * np.cos(d) + speed * np.cos(a), s * np.sin(d), speed * np.sin(a), spin])
-    sol = solve_ivp(ode, t_span=(0, t_max), y0=y0, events=hit_event, rtol=1e-8, atol=1e-10)
+    y0 = np.array([0.0, 0.0, shooter_height, vx + speed * np.cos(a), vy, speed * np.sin(a), spin])
+    sol = solve_ivp(ode, t_span=(0, t_max), y0=y0, rtol=1e-8, atol=1e-10)
 
     # Plot data
     fig = plt.figure()
