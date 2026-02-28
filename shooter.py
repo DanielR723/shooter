@@ -25,10 +25,9 @@ p = 1.14 # Air density (kg/m^3)
 # Simulation Variables
 shooter_height = 0.39 # Height of the shooter (m)
 target_height = 1.83 + R # Height of the target (m)
-angle_range = np.pi / 4.0 # Range of acceptable angles (rad)
 t_max = 2.0 # Max time to integrate to (s)
-velocity_density = 37 # Number of values used when simulating speeds
-rpm_density = 121 # Number of values used when simulating rpms
+velocity_density = 19 # Number of values used when simulating speeds
+rpm_density = 61 # Number of values used when simulating rpms
 angle_density = 21 # Number of values used when simulating hood angles
 
 # Shooter Constraints
@@ -43,7 +42,7 @@ velocity_x = np.linspace(-speed_max, speed_max, velocity_density) # Velocity of 
 velocity_y = np.linspace(-speed_max, speed_max, velocity_density) # Velocity of the bot to the left or right of the target (m/s)
 rpm = np.linspace(rpm_min, rpm_max, rpm_density) # RPM's (rotations/min)
 angle_deg = np.linspace(angle_min, angle_max, angle_density) # Angle's (deg)
-angle_rad = angle_deg * 180 / np.pi # Angle's (rad)
+angle_rad = angle_deg * np.pi / 180.0 # Angle's (rad)
 
 # -------------------- Variables --------------------
 
@@ -58,7 +57,7 @@ speed_c = [] # Coefficients for speed polynomial (NEEDS TO BE INITIALIZED BEFORE
 spin_c = [] # Coefficients for spin polynomial (NEEDS TO BE INITIALIZED BEFORE DATATABLE)
 
 test_rpm = np.array([3000.0, 4000.0, 5000.0, 6000.0, 3000.0, 4000.0, 5000.0, 6000.0]) # RPM's (rotations/min)
-test_speed = np.array([5.561746945475823, 6.9015543559842465, 7.827967590669779, 8.083195075204472, 5.131013479562509, 7.099633453821274, 7.927967590669779, 8.36101844274653]) # Speed exiting shooter (m/s)
+test_speed = np.array([5.561746945475823, 6.9015543559842465, 7.827967590669779, 8.083195075204472, 5.131013479562509, 7.099633453821274, 8.653746379693173, 8.36101844274653]) # Speed exiting shooter (m/s)
 test_spin = np.array([-19.84163781214606, -26.92793703076965, -31.415926535897928, -41.8879020478639, -22.175948142986773, -28.999316802367318, -31.415926535897928, -34.27191985734319]) # Spin exiting shooter (rotations/s)
 
 num_tests = 2 # Number of tests
@@ -136,8 +135,8 @@ def ode_c(t, y, C_d, k): # ODE's for integrator
 def hit_event(t, y): # Detect hits
     return y[2] - target_height
 
-hit_event.direction = -1
 hit_event.terminal = True
+hit_event.direction = -1
 
 def simulate(vx, vy, r, a): # Get the landing x for certain initial conditions
     speed, spin = rpm_to_params(r)
@@ -149,15 +148,11 @@ def simulate(vx, vy, r, a): # Get the landing x for certain initial conditions
     # Get return value
     if sol.t_events[0].size > 0:
         y_hit = sol.y_events[0][0]
-        vertical = -y_hit[5] / np.linalg.norm(y_hit[3:6]) > np.cos(angle_range)
 
-        if vertical:
-            shot_dist = np.sqrt(y_hit[0]**2 + y_hit[1]**2)
-            shot_dir = np.arctan2(y_hit[1], y_hit[0])
+        shot_dist = np.sqrt(y_hit[0]**2 + y_hit[1]**2)
+        shot_dir = np.arctan2(y_hit[1], y_hit[0])
 
-            return shot_dist, shot_dir
-        else:
-            return None, None
+        return shot_dist, shot_dir
     else:
         return None, None
 
@@ -224,8 +219,14 @@ def gen_lookup(): # Create the lookup table
         for i_2 in range(velocity_density):
             vy = velocity_y[i_2]
 
+            # Correct for unphysical velocities
             if vx**2 + vy**2 > speed_max**2:
                 current_iter += rpm_density * angle_density
+                percent = int(current_iter / percent_ratio * 100)
+                if percent != percent_done:
+                    bar = int(current_iter / percent_ratio * 20)
+                    print(f'\rIntegrating [{'-' * bar}{' ' * (20 - bar)}] %{percent}', end='')
+                    percent_done = percent
                 continue
 
             for i_3 in range(rpm_density):
